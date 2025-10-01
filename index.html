@@ -1,0 +1,216 @@
+import requests
+import pandas as pd
+import os
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Optional
+import numpy as np
+
+class WeatherDataProcessor:
+    """Processes NASA Earth observation data for weather condition probabilities"""
+    
+    def __init__(self):
+        self.base_url = "https://power.larc.nasa.gov/api/temporal/daily/point"
+        self.variables = "T2M_MAX,T2M_MIN,PRECTOT,WS2M,RH2M"
+        self.cache_dir = "data_cache"
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Weather condition thresholds
+        self.thresholds = {
+            'very_hot': 35,      # Celsius
+            'very_cold': 10,     # Celsius
+            'very_wet': 10,      # mm/day
+            'very_windy': 10,    # m/s
+            'very_uncomfortable_temp': 30,  # Celsius
+            'very_uncomfortable_humidity': 70  # %
+        }
+    
+    def fetch_weather_data(self, latitude: float, longitude: float, 
+                          start_date: str, end_date: str) -> pd.DataFrame:
+        """Fetch weather data from NASA POWER API"""
+        
+        # Check cache first
+        cache_key = f"{latitude}_{longitude}_{start_date}_{end_date}"
+        cache_file = os.path.join(self.cache_dir, f"{cache_key}.csv")
+        
+        if os.path.exists(cache_file):
+            print(f"Loading cached data from {cache_file}")
+            df = pd.read_csv(cache_file)
+            # Ensure date column is datetime
+            df['date'] = pd.to_datetime(df['date'])
+            return df
+        
+        # Fetch from API
+        url = f"{self.base_url}?parameters={self.variables}&community=RE&longitude={longitude}&latitude={latitude}&start={start_date}&end={end_date}&format=JSON"
+        
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if 'properties' not in data or 'parameter' not in data['properties']:
+                raise ValueError("Invalid API response format")
+                
+            daily_data = data['properties']['parameter']
+            df = pd.DataFrame(daily_data)
+            df.index.name = 'date'
+            df.reset_index(inplace=True)
+            
+            # Rename columns for clarity
+            df.rename(columns={
+                'T2M_MAX': 'temp_max',
+                'T2M_MIN': 'temp_min', 
+                'PRECTOTCORR': 'precipitation',
+                'WS2M': 'wind_speed',
+                'RH2M': 'humidity'
+            }, inplace=True)
+            
+            # Convert date column to datetime, handling different formats
+            try:
+                df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
+            except:
+                # If format doesn't match, try automatic parsing
+                df['date'] = pd.to_datetime(df['date'])
+            
+            # Cache the data
+            df.to_csv(cache_file, index=False)
+            print(f"Data cached to {cache_file}")
+            
+            return df
+            
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Failed to fetch data from NASA API: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Error processing weather data: {str(e)}")
+    
+    def calculate_weather_conditions(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate weather condition flags based on thresholds"""
+        
+        df = df.copy()
+        
+        # Calculate weather condition flags
+        df['very_hot'] = df['temp_max'] > self.thresholds['very_hot']
+        df['very_cold'] = df['temp_min'] < self.thresholds['very_cold']
+        df['very_wet'] = df['precipitation'] > self.thresholds['very_wet']
+        df['very_windy'] = df['wind_speed'] > self.thresholds['very_windy']
+        df['very_uncomfortable'] = (
+            (df['temp_max'] > self.thresholds['very_uncomfortable_temp']) & 
+            (df['humidity'] > self.thresholds['very_uncomfortable_humidity'])
+        ) | df['very_windy']
+        
+        return df
+    
+    def calculate_monthly_probabilities(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate monthly probabilities for each weather condition"""
+        
+        df = df.copy()
+        df['month'] = df['date'].dt.month
+        
+        monthly_probs = df.groupby('month')[
+            ['very_hot', 'very_cold', 'very_wet', 'very_windy', 'very_uncomfortable']
+        ].mean() * 100
+        
+        return monthly_probs.round(2)
+    
+    def calculate_daily_probabilities(self, df: pd.DataFrame, target_month: int, target_day: int) -> Dict:
+        """Calculate probabilities for a specific day of the year"""
+        
+        df = df.copy()
+        df['month'] = df['date'].dt.month
+        df['day'] = df['date'].dt.day
+        
+        # Filter for the specific month and day
+        day_data = df[(df['month'] == target_month) & (df['day'] == target_day)]
+        
+        if day_data.empty:
+            return {
+                'very_hot': 0.0,
+                'very_cold': 0.0, 
+                'very_wet': 0.0,
+                'very_windy': 0.0,
+                'very_uncomfortable': 0.0,
+                'sample_size': 0
+            }
+        
+        probabilities = {}
+        conditions = ['very_hot', 'very_cold', 'very_wet', 'very_windy', 'very_uncomfortable']
+        
+        for condition in conditions:
+            probabilities[condition] = round(day_data[condition].mean() * 100, 2)
+        
+        probabilities['sample_size'] = len(day_data)
+        
+        return probabilities
+    
+    def get_weather_summary(self, df: pd.DataFrame, target_month: int, target_day: int) -> Dict:
+        """Get comprehensive weather summary for a location and date"""
+        
+        # Calculate all probabilities
+        monthly_probs = self.calculate_monthly_probabilities(df)
+        daily_probs = self.calculate_daily_probabilities(df, target_month, target_day)
+        
+        # Get basic statistics
+        basic_stats = {
+            'avg_temp_max': round(df['temp_max'].mean(), 2),
+            'avg_temp_min': round(df['temp_min'].mean(), 2),
+            'avg_precipitation': round(df['precipitation'].mean(), 2),
+            'avg_wind_speed': round(df['wind_speed'].mean(), 2),
+            'avg_humidity': round(df['humidity'].mean(), 2)
+        }
+        
+        # Generate summary text
+        summary_text = self._generate_summary_text(daily_probs, basic_stats, target_month, target_day)
+        
+        return {
+            'daily_probabilities': daily_probs,
+            'monthly_probabilities': monthly_probs.to_dict(),
+            'basic_statistics': basic_stats,
+            'summary_text': summary_text,
+            'data_period': {
+                'start_date': df['date'].min().strftime('%Y-%m-%d'),
+                'end_date': df['date'].max().strftime('%Y-%m-%d'),
+                'total_days': len(df)
+            }
+        }
+    
+    def _generate_summary_text(self, daily_probs: Dict, basic_stats: Dict, 
+                              month: int, day: int) -> str:
+        """Generate human-readable summary text"""
+        
+        month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December']
+        
+        month_name = month_names[month]
+        
+        summary_parts = [
+            f"Weather conditions for {month_name} {day}:",
+            f"• Very hot conditions (>35°C): {daily_probs['very_hot']}% chance",
+            f"• Very cold conditions (<10°C): {daily_probs['very_cold']}% chance", 
+            f"• Very wet conditions (>10mm rain): {daily_probs['very_wet']}% chance",
+            f"• Very windy conditions (>10 m/s): {daily_probs['very_windy']}% chance",
+            f"• Very uncomfortable conditions: {daily_probs['very_uncomfortable']}% chance",
+            "",
+            f"Average conditions: {basic_stats['avg_temp_max']}°C high, {basic_stats['avg_temp_min']}°C low",
+            f"Average precipitation: {basic_stats['avg_precipitation']}mm/day",
+            f"Average wind speed: {basic_stats['avg_wind_speed']} m/s"
+        ]
+        
+        return "\n".join(summary_parts)
+    
+    def export_data(self, df: pd.DataFrame, location_name: str, 
+                   latitude: float, longitude: float, format: str = 'csv') -> str:
+        """Export processed data in specified format"""
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{location_name}_{latitude}_{longitude}_{timestamp}"
+        
+        if format.lower() == 'csv':
+            filepath = os.path.join(self.cache_dir, f"{filename}.csv")
+            df.to_csv(filepath, index=False)
+        elif format.lower() == 'json':
+            filepath = os.path.join(self.cache_dir, f"{filename}.json")
+            df.to_json(filepath, orient='records', date_format='iso')
+        else:
+            raise ValueError("Format must be 'csv' or 'json'")
+        
+        return filepath
