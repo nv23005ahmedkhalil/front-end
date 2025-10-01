@@ -1,216 +1,260 @@
-import requests
-import pandas as pd
-import os
-import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional
-import numpy as np
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NASA Weather Probability</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Use the Inter font family */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple animation for loading spinner */
+        @keyframes spin {
+            to { transform: rotate(3D); }
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white antialiased">
 
-class WeatherDataProcessor:
-    """Processes NASA Earth observation data for weather condition probabilities"""
-    
-    def __init__(self):
-        self.base_url = "https://power.larc.nasa.gov/api/temporal/daily/point"
-        self.variables = "T2M_MAX,T2M_MIN,PRECTOT,WS2M,RH2M"
-        self.cache_dir = "data_cache"
-        os.makedirs(self.cache_dir, exist_ok=True)
-        
-        # Weather condition thresholds
-        self.thresholds = {
-            'very_hot': 35,      # Celsius
-            'very_cold': 10,     # Celsius
-            'very_wet': 10,      # mm/day
-            'very_windy': 10,    # m/s
-            'very_uncomfortable_temp': 30,  # Celsius
-            'very_uncomfortable_humidity': 70  # %
-        }
-    
-    def fetch_weather_data(self, latitude: float, longitude: float, 
-                          start_date: str, end_date: str) -> pd.DataFrame:
-        """Fetch weather data from NASA POWER API"""
-        
-        # Check cache first
-        cache_key = f"{latitude}_{longitude}_{start_date}_{end_date}"
-        cache_file = os.path.join(self.cache_dir, f"{cache_key}.csv")
-        
-        if os.path.exists(cache_file):
-            print(f"Loading cached data from {cache_file}")
-            df = pd.read_csv(cache_file)
-            # Ensure date column is datetime
-            df['date'] = pd.to_datetime(df['date'])
-            return df
-        
-        # Fetch from API
-        url = f"{self.base_url}?parameters={self.variables}&community=RE&longitude={longitude}&latitude={latitude}&start={start_date}&end={end_date}&format=JSON"
-        
-        try:
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+    <!-- Main container -->
+    <div class="container mx-auto max-w-4xl px-4 py-8">
+
+        <!-- Header -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl md:text-5xl font-bold mb-2">Weather Probability Forecaster</h1>
+            <p class="text-lg text-gray-400">Using NASA Earth Observation Data</p>
+        </header>
+
+        <!-- Query Form -->
+        <form id="weather-form" class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Latitude -->
+                <div>
+                    <label for="latitude" class="block text-sm font-medium text-gray-300 mb-1">Latitude</label>
+                    <input type="number" step="any" id="latitude" name="latitude" required class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g., 40.7128">
+                </div>
+                <!-- Longitude -->
+                <div>
+                    <label for="longitude" class="block text-sm font-medium text-gray-300 mb-1">Longitude</label>
+                    <input type="number" step="any" id="longitude" name="longitude" required class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g., -74.0060">
+                </div>
+                <!-- Month -->
+                <div>
+                    <label for="month" class="block text-sm font-medium text-gray-300 mb-1">Month</label>
+                    <input type="number" id="month" name="month" min="1" max="12" required class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="1-12">
+                </div>
+                <!-- Day -->
+                <div>
+                    <label for="day" class="block text-sm font-medium text-gray-300 mb-1">Day</label>
+                    <input type="number" id="day" name="day" min="1" max="31" required class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="1-31">
+                </div>
+                <!-- Start Year -->
+                 <div class="md:col-span-1">
+                    <label for="start_year" class="block text-sm font-medium text-gray-300 mb-1">Start Year (Optional)</label>
+                    <input type="number" id="start_year" name="start_year" min="2000" max="2024" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g., 2015">
+                </div>
+                <!-- End Year -->
+                 <div class="md:col-span-1">
+                    <label for="end_year" class="block text-sm font-medium text-gray-300 mb-1">End Year (Optional)</label>
+                    <input type="number" id="end_year" name="end_year" min="2000" max="2024" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g., 2024">
+                </div>
+                <!-- Location Name -->
+                <div class="md:col-span-2">
+                    <label for="location_name" class="block text-sm font-medium text-gray-300 mb-1">Location Name (Optional)</label>
+                    <input type="text" id="location_name" name="location_name" class="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="e.g., New York">
+                </div>
+            </div>
+             <button type="submit" id="fetchDataBtn" class="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300 ease-in-out flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" /></svg>
+                Get Weather Probability
+            </button>
+        </form>
+
+        <!-- Data Display Area -->
+        <main id="data-container" class="bg-gray-800 rounded-lg shadow-lg p-6 min-h-[300px] flex items-center justify-center">
+            <div id="placeholder" class="text-center text-gray-500">
+                <p>Weather probability results will appear here.</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const weatherForm = document.getElementById('weather-form');
+        const dataContainer = document.getElementById('data-container');
+        let lastQueryParams = null; // Store the last successful query parameters
+
+        weatherForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
             
-            if 'properties' not in data or 'parameter' not in data['properties']:
-                raise ValueError("Invalid API response format")
+            const formData = new FormData(weatherForm);
+            const params = new URLSearchParams();
+
+            // Build query parameters from form data
+            for (const [key, value] of formData.entries()) {
+                if (value) { // only add params if they have a value
+                    params.append(key, value);
+                }
+            }
+            
+            // Store the params for the export function
+            lastQueryParams = params;
+
+            const apiUrl = `http://localhost:5000/weather/query?${params.toString()}`;
+            console.log('Querying API:', apiUrl);
+
+            // Show loading state
+            dataContainer.innerHTML = `
+                <div class="flex flex-col items-center justify-center text-gray-400">
+                    <div class="spinner mb-4"></div>
+                    <p>Fetching historical weather data...</p>
+                </div>
+            `;
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: 'Unknown error occurred. Is the backend server running?' }));
+                    throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorData.detail}`);
+                }
+                const data = await response.json();
+                console.log('Data received:', data);
+                displayWeatherData(data);
+
+            } catch (error) {
+                console.error('Failed to fetch data:', error);
+                dataContainer.innerHTML = `
+                    <div class="text-center text-red-400">
+                        <h3 class="font-bold text-lg mb-2">Error Fetching Data</h3>
+                        <p class="text-sm mt-2 text-gray-500">${error.message}</p>
+                        <p class="text-sm mt-1 text-gray-500">Please check that your backend is running and the API URL is correct.</p>
+                    </div>
+                `;
+            }
+        });
+        
+        function displayWeatherData(data) {
+            if (!data || !data.results) {
+                 dataContainer.innerHTML = `<p class="text-gray-500">No results found or invalid data format.</p>`;
+                 return;
+            }
+
+            const { query, results } = data;
+            const { daily_probabilities, summary } = results;
+
+            const conditionColors = {
+                very_hot: 'bg-red-500',
+                very_cold: 'bg-blue-500',
+                very_wet: 'bg-cyan-500',
+                very_windy: 'bg-green-500',
+                very_uncomfortable: 'bg-yellow-500',
+            };
+
+            const probabilitiesHTML = Object.entries(daily_probabilities).map(([condition, probability]) => {
+                const readableCondition = condition.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                const color = conditionColors[condition] || 'bg-gray-500';
+                return `
+                    <div class="mb-3">
+                        <div class="flex justify-between mb-1">
+                            <span class="text-base font-medium text-gray-300">${readableCondition}</span>
+                            <span class="text-sm font-medium text-gray-300">${probability.toFixed(2)}%</span>
+                        </div>
+                        <div class="w-full bg-gray-600 rounded-full h-2.5">
+                            <div class="${color} h-2.5 rounded-full" style="width: ${probability}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const locationName = query.location_name || `${query.latitude}, ${query.longitude}`;
+            const date = new Date(2000, query.month - 1, query.day).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+
+            dataContainer.innerHTML = `
+                <div class="w-full text-left">
+                    <h2 class="text-2xl font-bold mb-1">Weather Probability for ${locationName}</h2>
+                    <p class="text-md text-gray-400 mb-4">On or around ${date}</p>
+                    
+                    <div class="bg-gray-700 rounded-lg p-4 mb-6">
+                        <p class="text-center italic">${summary}</p>
+                    </div>
+
+                    <h3 class="text-xl font-semibold mb-3">Daily Probabilities</h3>
+                    <div class="bg-gray-700 rounded-lg p-4">
+                       ${probabilitiesHTML}
+                    </div>
+
+                    <!-- Export Section -->
+                    <div class="mt-6">
+                        <h3 class="text-xl font-semibold mb-3">Export Full Data</h3>
+                        <div class="flex space-x-4">
+                            <button onclick="handleExport('csv')" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                                Export as CSV
+                            </button>
+                            <button onclick="handleExport('json')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                                Export as JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function handleExport(format) {
+            if (!lastQueryParams) {
+                alert("Please perform a successful query before exporting.");
+                return;
+            }
+
+            const exportParams = new URLSearchParams(lastQueryParams.toString());
+            exportParams.delete('month'); // Export endpoint may not need month/day
+            exportParams.delete('day');
+            exportParams.delete('location_name');
+            exportParams.append('format', format);
+            
+            const exportUrl = `http://localhost:5000/weather/export?${exportParams.toString()}`;
+            console.log('Exporting from:', exportUrl);
+
+            try {
+                const response = await fetch(exportUrl);
+                if (!response.ok) {
+                    throw new Error(`Export failed! Status: ${response.status}`);
+                }
                 
-            daily_data = data['properties']['parameter']
-            df = pd.DataFrame(daily_data)
-            df.index.name = 'date'
-            df.reset_index(inplace=True)
-            
-            # Rename columns for clarity
-            df.rename(columns={
-                'T2M_MAX': 'temp_max',
-                'T2M_MIN': 'temp_min', 
-                'PRECTOTCORR': 'precipitation',
-                'WS2M': 'wind_speed',
-                'RH2M': 'humidity'
-            }, inplace=True)
-            
-            # Convert date column to datetime, handling different formats
-            try:
-                df['date'] = pd.to_datetime(df['date'], format='%Y%m%d')
-            except:
-                # If format doesn't match, try automatic parsing
-                df['date'] = pd.to_datetime(df['date'])
-            
-            # Cache the data
-            df.to_csv(cache_file, index=False)
-            print(f"Data cached to {cache_file}")
-            
-            return df
-            
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Failed to fetch data from NASA API: {str(e)}")
-        except Exception as e:
-            raise Exception(f"Error processing weather data: {str(e)}")
-    
-    def calculate_weather_conditions(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate weather condition flags based on thresholds"""
-        
-        df = df.copy()
-        
-        # Calculate weather condition flags
-        df['very_hot'] = df['temp_max'] > self.thresholds['very_hot']
-        df['very_cold'] = df['temp_min'] < self.thresholds['very_cold']
-        df['very_wet'] = df['precipitation'] > self.thresholds['very_wet']
-        df['very_windy'] = df['wind_speed'] > self.thresholds['very_windy']
-        df['very_uncomfortable'] = (
-            (df['temp_max'] > self.thresholds['very_uncomfortable_temp']) & 
-            (df['humidity'] > self.thresholds['very_uncomfortable_humidity'])
-        ) | df['very_windy']
-        
-        return df
-    
-    def calculate_monthly_probabilities(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate monthly probabilities for each weather condition"""
-        
-        df = df.copy()
-        df['month'] = df['date'].dt.month
-        
-        monthly_probs = df.groupby('month')[
-            ['very_hot', 'very_cold', 'very_wet', 'very_windy', 'very_uncomfortable']
-        ].mean() * 100
-        
-        return monthly_probs.round(2)
-    
-    def calculate_daily_probabilities(self, df: pd.DataFrame, target_month: int, target_day: int) -> Dict:
-        """Calculate probabilities for a specific day of the year"""
-        
-        df = df.copy()
-        df['month'] = df['date'].dt.month
-        df['day'] = df['date'].dt.day
-        
-        # Filter for the specific month and day
-        day_data = df[(df['month'] == target_month) & (df['day'] == target_day)]
-        
-        if day_data.empty:
-            return {
-                'very_hot': 0.0,
-                'very_cold': 0.0, 
-                'very_wet': 0.0,
-                'very_windy': 0.0,
-                'very_uncomfortable': 0.0,
-                'sample_size': 0
-            }
-        
-        probabilities = {}
-        conditions = ['very_hot', 'very_cold', 'very_wet', 'very_windy', 'very_uncomfortable']
-        
-        for condition in conditions:
-            probabilities[condition] = round(day_data[condition].mean() * 100, 2)
-        
-        probabilities['sample_size'] = len(day_data)
-        
-        return probabilities
-    
-    def get_weather_summary(self, df: pd.DataFrame, target_month: int, target_day: int) -> Dict:
-        """Get comprehensive weather summary for a location and date"""
-        
-        # Calculate all probabilities
-        monthly_probs = self.calculate_monthly_probabilities(df)
-        daily_probs = self.calculate_daily_probabilities(df, target_month, target_day)
-        
-        # Get basic statistics
-        basic_stats = {
-            'avg_temp_max': round(df['temp_max'].mean(), 2),
-            'avg_temp_min': round(df['temp_min'].mean(), 2),
-            'avg_precipitation': round(df['precipitation'].mean(), 2),
-            'avg_wind_speed': round(df['wind_speed'].mean(), 2),
-            'avg_humidity': round(df['humidity'].mean(), 2)
-        }
-        
-        # Generate summary text
-        summary_text = self._generate_summary_text(daily_probs, basic_stats, target_month, target_day)
-        
-        return {
-            'daily_probabilities': daily_probs,
-            'monthly_probabilities': monthly_probs.to_dict(),
-            'basic_statistics': basic_stats,
-            'summary_text': summary_text,
-            'data_period': {
-                'start_date': df['date'].min().strftime('%Y-%m-%d'),
-                'end_date': df['date'].max().strftime('%Y-%m-%d'),
-                'total_days': len(df)
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                
+                // Create a filename based on location and date
+                const location = lastQueryParams.get('location_name') || `lat${lastQueryParams.get('latitude')}_lon${lastQueryParams.get('longitude')}`;
+                a.download = `weather_data_${location.replace(/ /g, '_')}.${format}`;
+                
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+
+            } catch (error) {
+                console.error('Export error:', error);
+                alert(`Could not export data. ${error.message}`);
             }
         }
-    
-    def _generate_summary_text(self, daily_probs: Dict, basic_stats: Dict, 
-                              month: int, day: int) -> str:
-        """Generate human-readable summary text"""
-        
-        month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-                      'July', 'August', 'September', 'October', 'November', 'December']
-        
-        month_name = month_names[month]
-        
-        summary_parts = [
-            f"Weather conditions for {month_name} {day}:",
-            f"• Very hot conditions (>35°C): {daily_probs['very_hot']}% chance",
-            f"• Very cold conditions (<10°C): {daily_probs['very_cold']}% chance", 
-            f"• Very wet conditions (>10mm rain): {daily_probs['very_wet']}% chance",
-            f"• Very windy conditions (>10 m/s): {daily_probs['very_windy']}% chance",
-            f"• Very uncomfortable conditions: {daily_probs['very_uncomfortable']}% chance",
-            "",
-            f"Average conditions: {basic_stats['avg_temp_max']}°C high, {basic_stats['avg_temp_min']}°C low",
-            f"Average precipitation: {basic_stats['avg_precipitation']}mm/day",
-            f"Average wind speed: {basic_stats['avg_wind_speed']} m/s"
-        ]
-        
-        return "\n".join(summary_parts)
-    
-    def export_data(self, df: pd.DataFrame, location_name: str, 
-                   latitude: float, longitude: float, format: str = 'csv') -> str:
-        """Export processed data in specified format"""
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{location_name}_{latitude}_{longitude}_{timestamp}"
-        
-        if format.lower() == 'csv':
-            filepath = os.path.join(self.cache_dir, f"{filename}.csv")
-            df.to_csv(filepath, index=False)
-        elif format.lower() == 'json':
-            filepath = os.path.join(self.cache_dir, f"{filename}.json")
-            df.to_json(filepath, orient='records', date_format='iso')
-        else:
-            raise ValueError("Format must be 'csv' or 'json'")
-        
-        return filepath
+    </script>
+</body>
+</html>
+
